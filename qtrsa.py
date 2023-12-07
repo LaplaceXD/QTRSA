@@ -1,81 +1,77 @@
+import os
 import base64
 import random
 import string
-import os
 import hashlib as hl
 
 import rsa
 
-b64_map = list(string.ascii_uppercase) + list(string.ascii_lowercase) + list(string.digits) + ["+", "/"]
-non_b64_map = [c for c in string.printable if c not in b64_map]
+# ===== CIPHER FUNCTIONS ======
+def abash_cipher(text: str, space: list[str] | str):
+    """ 
+    Flips the characters in a text to their opposite counterparts in a 
+    given character space. Characters that are not in the space are ignored.
+    """
+    return "".join(space[len(space) - space.index(c) - 1] if c in space else c for c in text)
 
-def is_b64(s):
+def caesar_cipher(text: str, shift: int, space: list[str] | str, reversed: bool = False):
+    """ 
+    Shifts the characters by a given number in a given 
+    character space. Characters that are not in the space are ignored.
+    """
+    rot = shift if not reversed else -shift
+    return "".join(space[(space.index(c) + rot) % len(space)] if c in space else c for c in text)
+
+def vigenere_cipher(text: str, keyword: str, space: list[str] | str, reversed: bool = False):
+    """ 
+    Shifts the characters based on the value of a keyword in a 
+    character space. Characters that are not in the character space 
+    are ignored, and for the keyword it is stripped. 
+    """
+    key_shifts = [space.index(k) if not reversed else -space.index(k) for k in keyword if k in space]
+    if len(key_shifts) == 0:
+        return text
+
+    return "".join(space[(space.index(c) + key_shifts[i % len(key_shifts)]) % len(space)] if c in space else c for i, c in enumerate(text))
+
+def generate_otp(size: int, space: list[str] | str):
+    """
+    Generates a one time pad of a given size from a character space.
+    """
+    return "".join(random.choices(space, k=size))
+
+def vernam_cipher(text: str, one_time_pad: str, space: list[str] | str):
+    """
+    XOR-based cipher which XORs a text with a randomly generated 
+    one time pad based on their value in a character space. Characters
+    that are not in the character space are ignored.
+    
+    Note: Use this with `generate_otp` function.
+    Limitations: Char space must have a length equal to a power of 2, or else an overflow occurs.
+    """
+    assert len(text) <= len(one_time_pad), "One time pad is smaller than the given text."
+    assert len(space) & (len(space) - 1) == 0, "Char space must have a length equal to a power of 2."
+    
+    return "".join(space[space.index(c) ^ space.index(o)] if c in space and o in space else c for c, o in zip(text, one_time_pad))
+
+# ===== QTRSA FUNCTIONS ======
+b64 = list(string.ascii_uppercase) + list(string.ascii_lowercase) + list(string.digits) + ["+", "/"]
+non_b64_map = [c for c in string.printable if c not in b64]
+
+def is_b64(s: str):
     try:
         base64.b64decode(s)
         return True
     except:
         return False
 
-def parse_b64(b64_text):
+def parse_b64(b64_text: str):
     padding_last_idx = b64_text.find("=")
     
     content = b64_text[:padding_last_idx] if padding_last_idx != -1 else b64_text[:]
     padding = b64_text[padding_last_idx:] if padding_last_idx != -1 else ""
     
     return content, padding
-
-def abash_encrypt_b64(text):
-    plaintext, padding = parse_b64(text)
-    
-    encrypted = "".join(b64_map[len(b64_map) - b64_map.index(char) - 1] for char in plaintext) 
-    return encrypted + padding
-
-def abash_decrypt_b64(text):
-    ciphertext, padding = parse_b64(text)
-   
-    decrypted = "".join(b64_map[len(b64_map) - b64_map.index(char) - 1] for char in ciphertext) 
-    return decrypted + padding
-
-def caesar_encrypt_b64(text, rot):
-    plaintext, padding = parse_b64(text)
-    
-    encrypted = "".join(b64_map[(b64_map.index(char) + rot) % len(b64_map)] for char in plaintext) 
-    return encrypted + padding
-
-def caesar_decrypt_b64(text, rot):
-    ciphertext, padding = parse_b64(text)
-    
-    decrypted = "".join(b64_map[(b64_map.index(char) - rot) % len(b64_map)] for char in ciphertext) 
-    return decrypted + padding
-
-def vigenere_encrypt_b64(text, key_b64):
-    plaintext, padding = parse_b64(text) 
-    key, _ = parse_b64(key_b64)    
-    
-    encrypted = "".join(b64_map[(b64_map.index(char) + b64_map.index(key[i % len(key)])) % len(b64_map)] for i, char in enumerate(plaintext)) 
-    return encrypted + padding
-
-def vigenere_decrypt_b64(text, key_b64):
-    ciphertext, padding = parse_b64(text) 
-    key, _ = parse_b64(key_b64)
-    
-    decrypted = "".join(b64_map[(b64_map.index(char) - b64_map.index(key[i % len(key)])) % len(b64_map)] for i, char in enumerate(ciphertext)) 
-    return decrypted + padding
-
-def vernam_encrypt_b64(text):
-    plaintext, padding = parse_b64(text)
-    otp = [random.randint(0, len(b64_map) - 1) for _ in range(len(plaintext))] 
-    
-    encrypted = "".join(b64_map[b64_map.index(char) ^ otp[i]] for i, char in enumerate(plaintext))
-    otp_b64 = "".join(b64_map[o] for o in otp)
-    
-    return encrypted + padding, otp_b64
-
-def vernam_decrypt_b64(text, otp_b64):
-    ciphertext, padding = parse_b64(text) 
-    
-    decrypted = "".join(b64_map[b64_map.index(char) ^ b64_map.index(otp_b64[i])] for i, char in enumerate(ciphertext))
-    return decrypted + padding
 
 def qtrsa_encrypt(byte_text, rsa_encryption_key, transpo_key, vigenere_key, encoding = "utf-8"):
     chunk_size = rsa_encryption_key.n.bit_length() // 8  - 11 # 8 -> bits in bytes, 11 -> overhead
@@ -93,23 +89,25 @@ def qtrsa_encrypt(byte_text, rsa_encryption_key, transpo_key, vigenere_key, enco
     plaintext, padding = parse_b64(b64_content)
     
     vigenere_key_b64 = base64.b64encode(vigenere_key.encode(encoding)).decode(encoding)
-    caesar_rot = sum(ord(c) for c in transpo_key) % len(b64_map) 
+    caesar_rot = sum(ord(c) for c in transpo_key) % len(b64) 
     otps = []
     
     buckets = [""] * len(transpo_key)
     for i, c in enumerate(plaintext):
         buckets[i % len(transpo_key)] += c
     
-    for i, part in enumerate(buckets):
+    for i, col in enumerate(buckets):
         if i % 4 == 0:
-            buckets[i] = abash_encrypt_b64(part)
+            buckets[i] = abash_cipher(col, b64)
         elif i % 4 == 1:
-            buckets[i] = caesar_encrypt_b64(part, caesar_rot)
+            buckets[i] = caesar_cipher(col, caesar_rot, b64)
         elif i % 4 == 2:
-            buckets[i] = vigenere_encrypt_b64(part, vigenere_key_b64)
+            buckets[i] = vigenere_cipher(col, vigenere_key_b64, b64)
         elif i % 4 == 3:
-            buckets[i], otp = vernam_encrypt_b64(part)
+            otp = generate_otp(len(col), b64)
             otps.append(otp)
+
+            buckets[i] = vernam_cipher(col, otp, b64)
 
     transpo_sorted = sorted(zip(transpo_key, buckets), key=lambda k : k[0])
     
@@ -128,25 +126,25 @@ def qtrsa_decrypt(byte_text, rsa_decryption_key, transpo_key, vigenere_key, one_
     ciphertext, padding = parse_b64(text)
     vigenere_key_b64 = base64.b64encode(vigenere_key.encode(encoding)).decode(encoding)
     otps = one_time_pads.decode(encoding)
-    caesar_rot = sum(ord(c) for c in transpo_key) % len(b64_map) 
+    caesar_rot = sum(ord(c) for c in transpo_key) % len(b64) 
 
     transposed_parts = [ciphertext[i - len(transpo_key):i] for i in range(len(transpo_key), len(text), len(transpo_key))]
     reversed_transposition = ["".join(col) for col in zip(*transposed_parts)]
-    removed_pads = ["".join(c for c in s if c in b64_map) for s in reversed_transposition]
+    removed_pads = ["".join(c for c in s if c in b64) for s in reversed_transposition]
 
     reversed_shuffle = sorted(zip(sorted(transpo_key), removed_pads), key=lambda k : transpo_key.index(k[0]))
     buckets = [s for _, s in reversed_shuffle]
 
-    for i, part in enumerate(buckets):
+    for i, col in enumerate(buckets):
         if i % 4 == 0:
-            buckets[i] = abash_decrypt_b64(part)
+            buckets[i] = abash_cipher(col, b64)
         elif i % 4 == 1:
-            buckets[i] = caesar_decrypt_b64(part, caesar_rot)
+            buckets[i] = caesar_cipher(col, caesar_rot, b64, reversed=True)
         elif i % 4 == 2:
-            buckets[i] = vigenere_decrypt_b64(part, vigenere_key_b64)
+            buckets[i] = vigenere_cipher(col, vigenere_key_b64, b64, reversed=True)
         elif i % 4 == 3:
-            otp, otps = otps[:len(part)], otps[len(part):]
-            buckets[i] = vernam_decrypt_b64(part, otp)
+            otp, otps = otps[:len(col)], otps[len(col):]
+            buckets[i] = vernam_cipher(col, otp, b64)
     
     plaintext_b64 = ""
     for i in range(sum(len(part) for part in buckets)):
