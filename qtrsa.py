@@ -54,6 +54,36 @@ def vernam_cipher(text: str, one_time_pad: str, space: list[str] | str):
     
     return "".join(space[space.index(c) ^ space.index(o)] if c in space and o in space else c for c, o in zip(text, one_time_pad))
 
+# ===== RSA FUNCTIONS =====
+def rsa_encrypt(plaintext: bytes, encryption_key: rsa.PublicKey):
+    """ Encrypts text of any length with RSA encryption. """
+    header_length = 11 # in bytes
+    chunk_size = encryption_key.n.bit_length() // 8 - header_length # in bytes
+    chunks = plaintext[:]
+
+    cipher = b""
+    while True:
+        chunk, chunks = chunks[:chunk_size], chunks[chunk_size:]
+        cipher += rsa.encrypt(chunk, encryption_key)
+        if len(chunks) == 0: break
+
+    return cipher
+
+def rsa_decrypt(ciphertext: bytes, decryption_key: rsa.PrivateKey):
+    """ Decrypts text of any length that was encrypted with RSA encryption. """
+    chunk_size = decryption_key.n.bit_length() // 8 # in bytes
+    chunks = ciphertext[:]
+    
+    plain = b""
+    while True: 
+        chunk, chunks = chunks[:chunk_size], chunks[chunk_size:]
+        plain += rsa.decrypt(chunk, decryption_key)
+
+        if len(chunks) == 0:
+            break
+
+    return plain
+
 # ===== QTRSA FUNCTIONS ======
 b64 = list(string.ascii_uppercase) + list(string.ascii_lowercase) + list(string.digits) + ["+", "/"]
 non_b64_map = [c for c in string.printable if c not in b64]
@@ -74,17 +104,8 @@ def parse_b64(b64_text: str):
     return content, padding
 
 def qtrsa_encrypt(byte_text, rsa_encryption_key, transpo_key, vigenere_key, encoding = "utf-8"):
-    chunk_size = rsa_encryption_key.n.bit_length() // 8  - 11 # 8 -> bits in bytes, 11 -> overhead
-    chunks = byte_text[:]
-    rsa_encrypted = b''
-    while True: 
-        chunk_text, chunks = chunks[:chunk_size], chunks[chunk_size:]
-        rsa_encrypted += rsa.encrypt(chunk_text, rsa_encryption_key)
-        
+    rsa_encrypted = rsa_encrypt(byte_text, rsa_encryption_key)
 
-        if len(chunks) == 0:
-            break
-    
     b64_content = base64.b64encode(rsa_encrypted).decode(encoding)
     plaintext, padding = parse_b64(b64_content)
     
@@ -151,16 +172,7 @@ def qtrsa_decrypt(byte_text, rsa_decryption_key, transpo_key, vigenere_key, one_
         plaintext_b64 += buckets[i % len(transpo_key)][i // len(transpo_key)]
     rsa_encrypted_text = base64.b64decode((plaintext_b64 + padding).encode(encoding))
     
-    chunk_size = rsa_decryption_key.n.bit_length() // 8 # 8 -> bits in bytes
-    chunks = rsa_encrypted_text[:]
-    plaintext_bytes = b''
-    while True: 
-        chunk_text, chunks = chunks[:chunk_size], chunks[chunk_size:]
-        plaintext_bytes += rsa.decrypt(chunk_text, rsa_decryption_key)
-
-        if len(chunks) == 0:
-            break
-    
+    plaintext_bytes = rsa_decrypt(rsa_encrypted_text, rsa_decryption_key)
     return plaintext_bytes
 
 def rinput(prompt):
