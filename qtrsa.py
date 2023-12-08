@@ -188,7 +188,7 @@ def qtrsa_encrypt_file(filename: str, modulus: int, passkey: str, uniquekey: str
     e_key, d_key = rsa.newkeys(modulus)
     
     print("🛡  Encrypting Content...")
-    ciphertext, one_time_pads = qtrsa_encrypt(
+    ciphertext, otp = qtrsa_encrypt(
         plaintext=plaintext,
         rsa_encryption_key=e_key,
         passkey=passkey,
@@ -202,12 +202,12 @@ def qtrsa_encrypt_file(filename: str, modulus: int, passkey: str, uniquekey: str
     
     print(f"📝 Writing Decryption Key...    -> {keyname}")
     with open(keyname, "wb") as key_file:
-        key_file.write(d_key.save_pkcs1())
+        split_key = d_key.save_pkcs1().split(b"\n")
+        otp = b"." + otp + b"."
+        otp = b"\n".join(otp[start:start+64] for start in range(0, len(otp), 64))
+        split_key.insert(-2, otp)
 
-        encoded_otps = "-----BEGIN OTPS-----\n".encode("utf-8")
-        encoded_otps += one_time_pads
-        encoded_otps += "\n-----END OTPS-----".encode("utf-8")
-        key_file.write(encoded_otps)
+        key_file.write(b"\n".join(split_key))
     
     print("🧬 Generating Hashes...")
     md5_plain = hl.md5(plaintext)
@@ -238,11 +238,10 @@ def qtrsa_decrypt_file(filename: str, keyname: str, passkey: str, uniquekey: str
         ciphertext = file.read()
 
     print(f"📖 Parsing Decryption Key...    -> {keyname}")
-    with open(keyname, "r") as key_file:
-        content = key_file.read().split("-----BEGIN OTPS-----")
-        
-        d_key = rsa.PrivateKey.load_pkcs1(content[0].encode("utf-8"))
-        otp = content[1].split("\n")[1].encode("utf-8")
+    with open(keyname, "rb") as key_file:
+        keys = key_file.read().split(b".")
+        d_key = rsa.PrivateKey.load_pkcs1(keys[0] + keys[2])
+        otp = keys[1]
 
     print("💌 Decrypting Content...")
     try:
