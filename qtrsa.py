@@ -8,7 +8,7 @@ import hashlib as hl
 import rsa
 
 # ===== CIPHER FUNCTIONS =====
-def abash_cipher(text: str, space: list[str] | str):
+def atbash_cipher(text: str, space: list[str] | str):
     """ 
     Flips the characters in a text to their opposite counterparts in a 
     given character space. Characters that are not in the space are ignored.
@@ -121,7 +121,7 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     
     for i, row in enumerate(rows):
         if   i % 4 == 0:
-            rows[i] = abash_cipher(row, b64)
+            rows[i] = atbash_cipher(row, b64)
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64)
         elif i % 4 == 2:
@@ -160,7 +160,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     rows = ["".join(row) for row in zip(*columns)]
     for i, row in enumerate(rows):
         if   i % 4 == 0:
-            rows[i] = abash_cipher(row, b64)
+            rows[i] = atbash_cipher(row, b64)
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64, reversed=True)
         elif i % 4 == 2:
