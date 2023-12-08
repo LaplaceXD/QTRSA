@@ -117,7 +117,7 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     
     # Build the rows of the Transposition Cipher, and let each row go through a different cipher
     row_length = len(uniquekey)
-    rows = ["".join(padded_text[end_range - row_length:end_range]) for end_range in range(row_length, len(padded_text) + 1, row_length)] 
+    rows = ["".join(padded_text[start:start+row_length]) for start in range(0, len(padded_text), row_length)] 
     
     for i, row in enumerate(rows):
         if   i % 4 == 0:
@@ -150,7 +150,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     
     # Regenerate the columns of the Transposition Cipher
     column_length = len(encoded_text) // len(uniquekey)
-    sorted_columns = ["".join(encoded_text[end_range - column_length:end_range]) for end_range in range(column_length, len(encoded_text) + 1, column_length)]
+    sorted_columns = ["".join(encoded_text[start:start+column_length]) for start in range(0, len(encoded_text), column_length)]
     
     # Unsort the columns of the Transposition Cipher by using the unique key
     unsorted_columns = sorted(zip(sorted(uniquekey), sorted_columns), key=lambda pairs : uniquekey.index(pairs[0]))
