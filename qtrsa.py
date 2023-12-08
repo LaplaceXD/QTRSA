@@ -98,7 +98,7 @@ def parse_b64(b64_text: str):
     return content, padding
 
 def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: str, uniquekey: str, encoding: str = "utf-8"):
-    """ Encrypt a given text with Quad-Transpositional RSA encryption. """
+    """ Encrypt a given text with QTRSA encryption. """
     b64 = get_b64_chars() 
     non_b64 = [c for c in string.printable if c not in b64]
      
@@ -139,7 +139,7 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     return ciphertext.encode(encoding), base64.b64encode(one_time_pads.encode(encoding))
 
 def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey: str, uniquekey: str, otp: bytes, encoding = "utf-8"):
-    """ Decrypt a text that was encrypted Quad-Transpositional RSA encryption. """
+    """ Decrypt a given text that was encrypted with QTRSA encryption. """
     b64 = get_b64_chars()
     encoded_text, padding = parse_b64(ciphertext.decode(encoding))
     
