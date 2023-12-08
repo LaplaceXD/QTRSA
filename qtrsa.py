@@ -14,25 +14,25 @@ def abash_cipher(text: str, space: list[str] | str):
     """
     return "".join(space[len(space) - space.index(c) - 1] if c in space else c for c in text)
 
-def caesar_cipher(text: str, shift: int, space: list[str] | str, reversed: bool = False):
+def caesar_cipher(text: str, rot: int, space: list[str] | str, reversed: bool = False):
     """ 
-    Shifts the characters by a given number in a given 
+    Rotates a given set of characters by a given number in a given 
     character space. Characters that are not in the space are ignored.
     """
-    rot = shift if not reversed else -shift
+    rot = rot if not reversed else -rot
     return "".join(space[(space.index(c) + rot) % len(space)] if c in space else c for c in text)
 
 def vigenere_cipher(text: str, keyword: str, space: list[str] | str, reversed: bool = False):
     """ 
-    Shifts the characters based on the value of a keyword in a 
+    Rotates a given set of characters based on the value of a keyword in a 
     character space. Characters that are not in the character space 
     are ignored, and for the keyword it is stripped. 
     """
-    key_shifts = [space.index(k) if not reversed else -space.index(k) for k in keyword if k in space]
-    if len(key_shifts) == 0:
+    key_rots = [space.index(k) if not reversed else -space.index(k) for k in keyword if k in space]
+    if len(key_rots) == 0:
         return text
 
-    return "".join(space[(space.index(c) + key_shifts[i % len(key_shifts)]) % len(space)] if c in space else c for i, c in enumerate(text))
+    return "".join(space[(space.index(c) + key_rots[i % len(key_rots)]) % len(space)] if c in space else c for i, c in enumerate(text))
 
 def generate_otp(size: int, space: list[str] | str):
     """
@@ -78,102 +78,109 @@ def rsa_decrypt(ciphertext: bytes, decryption_key: rsa.PrivateKey):
     while True: 
         chunk, chunks = chunks[:chunk_size], chunks[chunk_size:]
         plain += rsa.decrypt(chunk, decryption_key)
-
-        if len(chunks) == 0:
-            break
+        if len(chunks) == 0: break
 
     return plain
 
 # ===== QTRSA FUNCTIONS ======
-b64 = list(string.ascii_uppercase) + list(string.ascii_lowercase) + list(string.digits) + ["+", "/"]
-non_b64_map = [c for c in string.printable if c not in b64]
-
-def is_b64(s: str):
-    try:
-        base64.b64decode(s)
-        return True
-    except:
-        return False
+def get_b64_chars():
+    """ Gets the characters used in Base64 Encoding. """
+    return string.ascii_uppercase + string.ascii_lowercase + string.digits + "+/" 
 
 def parse_b64(b64_text: str):
+    """ Parses a Base64 text by splitting its padding and the actual content. """
     padding_last_idx = b64_text.find("=")
     
-    content = b64_text[:padding_last_idx] if padding_last_idx != -1 else b64_text[:]
+    content = b64_text[:padding_last_idx] if padding_last_idx != -1 else b64_text
     padding = b64_text[padding_last_idx:] if padding_last_idx != -1 else ""
     
     return content, padding
 
-def qtrsa_encrypt(byte_text, rsa_encryption_key, transpo_key, vigenere_key, encoding = "utf-8"):
-    rsa_encrypted = rsa_encrypt(byte_text, rsa_encryption_key)
-
-    b64_content = base64.b64encode(rsa_encrypted).decode(encoding)
-    plaintext, padding = parse_b64(b64_content)
+def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, pass_key: str, unique_key: str, encoding: str = "utf-8"):
+    """ Encrypt a given text with Quad-Transpositional RSA encryption. """
+    b64 = get_b64_chars() 
+    non_b64 = [c for c in string.printable if c not in b64]
+     
+    # Encrypt the text first in RSA, and then encode it to Base64
+    rsa_cipher = rsa_encrypt(plaintext, rsa_encryption_key)
+    encoded_text, padding = parse_b64(base64.b64encode(rsa_cipher).decode(encoding))
     
-    vigenere_key_b64 = base64.b64encode(vigenere_key.encode(encoding)).decode(encoding)
-    caesar_rot = sum(ord(c) for c in transpo_key) % len(b64) 
-    otps = []
+    # Build the keys for Vernam, Caesar, and Vigenere
+    one_time_pads = ""
+    rot = sum(ord(c) for c in unique_key + pass_key) % len(b64) 
+    encoded_pass_key = base64.b64encode(pass_key.encode(encoding)).decode(encoding)
     
-    buckets = [""] * len(transpo_key)
-    for i, c in enumerate(plaintext):
-        buckets[i % len(transpo_key)] += c
+    # Build the columns of the Transposition Cipher, and let each column go through a different cipher
+    skips = len(unique_key)
+    columns = ["".join(encoded_text[start_skip::skips]) for start_skip in range(skips)]
     
-    for i, col in enumerate(buckets):
-        if i % 4 == 0:
-            buckets[i] = abash_cipher(col, b64)
+    for i, col in enumerate(columns):
+        if   i % 4 == 0:
+            columns[i] = abash_cipher(col, b64)
         elif i % 4 == 1:
-            buckets[i] = caesar_cipher(col, caesar_rot, b64)
+            columns[i] = caesar_cipher(col, rot, b64)
         elif i % 4 == 2:
-            buckets[i] = vigenere_cipher(col, vigenere_key_b64, b64)
+            columns[i] = vigenere_cipher(col, encoded_pass_key, b64)
         elif i % 4 == 3:
             otp = generate_otp(len(col), b64)
-            otps.append(otp)
-
-            buckets[i] = vernam_cipher(col, otp, b64)
-
-    transpo_sorted = sorted(zip(transpo_key, buckets), key=lambda k : k[0])
+            columns[i] = vernam_cipher(col, otp, b64)
+            one_time_pads += otp
     
-    max_len_part = max(len(s) for _, s in transpo_sorted)
-    transpo_padded = [s + "".join(random.choice(non_b64_map) for _ in range(max_len_part - len(s))) for _, s in transpo_sorted]
-    transposed = ["".join(col) for col in zip(*transpo_padded)]
+    # Pad the columns with non Base64 characters so they are of equal length
+    max_column_length = max(len(column) for column in columns)
+    padded_columns = [column.ljust(max_column_length, random.choice(non_b64)) for column in columns]
     
-    encrypted = "".join(transposed) + padding
-    joined_otps = "".join(otps)
-    return encrypted.encode(encoding), joined_otps.encode(encoding)
-
-def qtrsa_decrypt(byte_text, rsa_decryption_key, transpo_key, vigenere_key, one_time_pads, encoding = "utf-8"):
-    assert is_b64(byte_text), "Encrypted text is malformed, and can't be decrypted." 
+    # Finish the Transposition Cipher by sorting the columns by the key
+    sorted_key_column_pairs = sorted(zip(unique_key, padded_columns), key=lambda pairs : pairs[0])
     
-    text = byte_text.decode(encoding)
-    ciphertext, padding = parse_b64(text)
-    vigenere_key_b64 = base64.b64encode(vigenere_key.encode(encoding)).decode(encoding)
-    otps = one_time_pads.decode(encoding)
-    caesar_rot = sum(ord(c) for c in transpo_key) % len(b64) 
+    # Modified Step for Transposition Cipher read the end by row instead of column to mix the ciphers
+    ciphertext = "".join("".join(row) for row in zip(*(column for _, column in sorted_key_column_pairs))) + padding
+    return ciphertext.encode(encoding), base64.b64encode(one_time_pads.encode(encoding))
 
-    transposed_parts = [ciphertext[i - len(transpo_key):i] for i in range(len(transpo_key), len(text), len(transpo_key))]
-    reversed_transposition = ["".join(col) for col in zip(*transposed_parts)]
-    removed_pads = ["".join(c for c in s if c in b64) for s in reversed_transposition]
-
-    reversed_shuffle = sorted(zip(sorted(transpo_key), removed_pads), key=lambda k : transpo_key.index(k[0]))
-    buckets = [s for _, s in reversed_shuffle]
-
-    for i, col in enumerate(buckets):
-        if i % 4 == 0:
-            buckets[i] = abash_cipher(col, b64)
+def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, pass_key: str, unique_key: str, otp: bytes, encoding = "utf-8"):
+    """ Decrypt a text that was encrypted Quad-Transpositional RSA encryption. """
+    b64 = get_b64_chars()
+    encoded_text, padding = parse_b64(ciphertext.decode(encoding))
+    
+    # Build the Keys for Vernam, Caesar, and Vigenere
+    one_time_pads = base64.b64decode(otp).decode(encoding)
+    rot = sum(ord(c) for c in unique_key + pass_key) % len(b64) 
+    encoded_pass_key = base64.b64encode(pass_key.encode(encoding)).decode(encoding)
+    
+    # Regenerate the columns of the Transposition Cipher
+    skips = len(unique_key)
+    sorted_columns = ["".join(encoded_text[start_skip::skips]) for start_skip in range(skips)]
+    
+    # Remove the padding from the columns
+    unpadded_columns = ["".join(c for c in column if c in b64) for column in sorted_columns]
+    
+    # Unsort the columns of the Transposition Cipher by using the unique key
+    unsorted_columns = sorted(zip(sorted(unique_key), unpadded_columns), key=lambda pairs : unique_key.index(pairs[0]))
+    columns = [column for _, column in unsorted_columns]
+    
+    # Reverse the cipher performed on each column
+    for i, col in enumerate(columns):
+        if   i % 4 == 0:
+            columns[i] = abash_cipher(col, b64)
         elif i % 4 == 1:
-            buckets[i] = caesar_cipher(col, caesar_rot, b64, reversed=True)
+            columns[i] = caesar_cipher(col, rot, b64, reversed=True)
         elif i % 4 == 2:
-            buckets[i] = vigenere_cipher(col, vigenere_key_b64, b64, reversed=True)
+            columns[i] = vigenere_cipher(col, encoded_pass_key, b64, reversed=True)
         elif i % 4 == 3:
-            otp, otps = otps[:len(col)], otps[len(col):]
-            buckets[i] = vernam_cipher(col, otp, b64)
+            col_otp, one_time_pads = one_time_pads[:len(col)], one_time_pads[len(col):]
+            columns[i] = vernam_cipher(col, col_otp, b64)
     
-    plaintext_b64 = ""
-    for i in range(sum(len(part) for part in buckets)):
-        plaintext_b64 += buckets[i % len(transpo_key)][i // len(transpo_key)]
-    rsa_encrypted_text = base64.b64decode((plaintext_b64 + padding).encode(encoding))
-    
-    plaintext_bytes = rsa_decrypt(rsa_encrypted_text, rsa_decryption_key)
-    return plaintext_bytes
+    # Regenerate the RSA encrypted text by reading the columns row-wise
+    max_column_length = max(len(column) for column in columns)
+    space_padded_columns = [column.ljust(max_column_length) for column in columns]
+    encoded_rsa_encrypted_text = "".join("".join(row) for row in zip(*space_padded_columns))
+    encoded_rsa_encrypted_text = encoded_rsa_encrypted_text.strip() + padding
+
+    # Reverse the encoding, and decrypt the RSA layer
+    rsa_encrypted_text = base64.b64decode(encoded_rsa_encrypted_text.encode(encoding))
+    plaintext = rsa_decrypt(rsa_encrypted_text, rsa_decryption_key)
+   
+    return plaintext
 
 def rinput(prompt):
     user_input = None
@@ -239,10 +246,10 @@ def main():
             
             print(f"{'🛡':<2}  Encrypting Content...")
             ciphertext, otps = qtrsa_encrypt(
-                byte_text=plaintext,
+                plaintext=plaintext,
                 rsa_encryption_key=e_key,
-                transpo_key=transpo_key,
-                vigenere_key=vigenere_key,
+                pass_key=vigenere_key,
+                unique_key=transpo_key,
                 encoding="utf-8"
             )
             
@@ -306,11 +313,11 @@ def main():
             print(f"{'💌':<2} Decrypting Content...")
             try:
                 plaintext = qtrsa_decrypt(
-                    byte_text=ciphertext,
+                    ciphertext=ciphertext,
                     rsa_decryption_key=d_key,
-                    transpo_key=transpo_key,
-                    vigenere_key=vigenere_key,
-                    one_time_pads=otps,
+                    pass_key=vigenere_key,
+                    unique_key=transpo_key,
+                    otp=otps,
                     encoding="utf-8"
                 )
             except:
