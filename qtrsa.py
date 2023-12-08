@@ -1,12 +1,13 @@
 import os
-import base64
+import argparse
 import random
 import string
+import base64
 import hashlib as hl
 
 import rsa
 
-# ===== CIPHER FUNCTIONS ======
+# ===== CIPHER FUNCTIONS =====
 def abash_cipher(text: str, space: list[str] | str):
     """ 
     Flips the characters in a text to their opposite counterparts in a 
@@ -82,7 +83,7 @@ def rsa_decrypt(ciphertext: bytes, decryption_key: rsa.PrivateKey):
 
     return plain
 
-# ===== QTRSA FUNCTIONS ======
+# ===== QTRSA FUNCTIONS =====
 def get_b64_chars():
     """ Gets the characters used in Base64 Encoding. """
     return string.ascii_uppercase + string.ascii_lowercase + string.digits + "+/" 
@@ -96,7 +97,7 @@ def parse_b64(b64_text: str):
     
     return content, padding
 
-def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, pass_key: str, unique_key: str, encoding: str = "utf-8"):
+def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: str, uniquekey: str, encoding: str = "utf-8"):
     """ Encrypt a given text with Quad-Transpositional RSA encryption. """
     b64 = get_b64_chars() 
     non_b64 = [c for c in string.printable if c not in b64]
@@ -107,11 +108,11 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, pass_key:
     
     # Build the keys for Vernam, Caesar, and Vigenere
     one_time_pads = ""
-    rot = sum(ord(c) for c in unique_key + pass_key) % len(b64) 
-    encoded_pass_key = base64.b64encode(pass_key.encode(encoding)).decode(encoding)
+    rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
+    encoded_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     
     # Build the columns of the Transposition Cipher, and let each column go through a different cipher
-    skips = len(unique_key)
+    skips = len(uniquekey)
     columns = ["".join(encoded_text[start_skip::skips]) for start_skip in range(skips)]
     
     for i, col in enumerate(columns):
@@ -131,31 +132,31 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, pass_key:
     padded_columns = [column.ljust(max_column_length, random.choice(non_b64)) for column in columns]
     
     # Finish the Transposition Cipher by sorting the columns by the key
-    sorted_key_column_pairs = sorted(zip(unique_key, padded_columns), key=lambda pairs : pairs[0])
+    sorted_key_column_pairs = sorted(zip(uniquekey, padded_columns), key=lambda pairs : pairs[0])
     
     # Modified Step for Transposition Cipher read the end by row instead of column to mix the ciphers
     ciphertext = "".join("".join(row) for row in zip(*(column for _, column in sorted_key_column_pairs))) + padding
     return ciphertext.encode(encoding), base64.b64encode(one_time_pads.encode(encoding))
 
-def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, pass_key: str, unique_key: str, otp: bytes, encoding = "utf-8"):
+def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey: str, uniquekey: str, otp: bytes, encoding = "utf-8"):
     """ Decrypt a text that was encrypted Quad-Transpositional RSA encryption. """
     b64 = get_b64_chars()
     encoded_text, padding = parse_b64(ciphertext.decode(encoding))
     
     # Build the Keys for Vernam, Caesar, and Vigenere
     one_time_pads = base64.b64decode(otp).decode(encoding)
-    rot = sum(ord(c) for c in unique_key + pass_key) % len(b64) 
-    encoded_pass_key = base64.b64encode(pass_key.encode(encoding)).decode(encoding)
+    rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
+    encoded_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     
     # Regenerate the columns of the Transposition Cipher
-    skips = len(unique_key)
+    skips = len(uniquekey)
     sorted_columns = ["".join(encoded_text[start_skip::skips]) for start_skip in range(skips)]
     
     # Remove the padding from the columns
     unpadded_columns = ["".join(c for c in column if c in b64) for column in sorted_columns]
     
     # Unsort the columns of the Transposition Cipher by using the unique key
-    unsorted_columns = sorted(zip(sorted(unique_key), unpadded_columns), key=lambda pairs : unique_key.index(pairs[0]))
+    unsorted_columns = sorted(zip(sorted(uniquekey), unpadded_columns), key=lambda pairs : uniquekey.index(pairs[0]))
     columns = [column for _, column in unsorted_columns]
     
     # Reverse the cipher performed on each column
@@ -182,238 +183,258 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, pass_ke
    
     return plaintext
 
-def rinput(prompt):
-    user_input = None
-    while user_input is None:
-        user_input = input(prompt).strip()
-        if user_input == '':
-            print("Value is required.")
-            user_input = None
+# ===== VIEWS AND HANDLERS =====
+def handle_encrypt(filename: str, modulus: int, passkey: str, uniquekey: str, output: str, keyname: str):
+    print(f"📖 Extracting contents...       <- {filename}")
+    with open(filename, "rb") as file:
+        plaintext = file.read()
 
-    return user_input
+    print("🛠  Generating RSA keys...")
+    e_key, d_key = rsa.newkeys(modulus)
+    
+    print("🛡  Encrypting Content...")
+    ciphertext, one_time_pads = qtrsa_encrypt(
+        plaintext=plaintext,
+        rsa_encryption_key=e_key,
+        passkey=passkey,
+        uniquekey=uniquekey,
+        encoding="utf-8"
+    )
+    
+    print(f"📝 Writing Encrypted Content... -> {output}")
+    with open(output, "wb") as output_file:
+        output_file.write(ciphertext)
+    
+    print(f"📝 Writing Decryption Key...    -> {keyname}")
+    with open(keyname, "wb") as key_file:
+        key_file.write(d_key.save_pkcs1())
 
-def cinput(prompt, text_on_fail, accept_if_pred):
-    user_input = None
-    while user_input is None:
-        user_input = input(prompt).strip()
-        if user_input == '':
-            print("Value is required.")
-            user_input = None
-        elif not accept_if_pred(user_input):
-            print(text_on_fail)
-            user_input = None
+        encoded_otps = "-----BEGIN OTPS-----\n".encode("utf-8")
+        encoded_otps += one_time_pads
+        encoded_otps += "\n-----END OTPS-----".encode("utf-8")
+        key_file.write(encoded_otps)
+    
+    print("🧬 Generating Hashes...")
+    md5_plain = hl.md5(plaintext)
+    sha1_plain = hl.sha1(plaintext)
+    md5_cipher = hl.md5(ciphertext)
+    sha1_cipher = hl.sha1(ciphertext)
 
-    return user_input
+    print("✅ Successful Encryption!")
+
+    print()
+    print("===== Results =====")
+    print("# File Summary")
+    print(f"Encrypted File         -> {output}") 
+    print(f"Decryption Key File    -> {keyname}") 
+    
+    print()
+    print("# Hash Summary")
+    print("-- Plain --")
+    print("MD5    :", md5_plain.hexdigest())
+    print("SHA1   :", sha1_plain.hexdigest())
+    print("-- Cipher --")
+    print("MD5    :", md5_cipher.hexdigest())
+    print("SHA1   :", sha1_cipher.hexdigest())
+
+def handle_decrypt(filename: str, filekey: str, passkey: str, uniquekey: str, output: str):
+    print(f"📖 Extracting contents...    -> {filename}")
+    with open(filename, "rb") as file:
+        ciphertext = file.read()
+
+    print(f"📖 Parsing Decryption Key... -> {filekey}")
+    with open(filekey, "r") as key_file:
+        content = key_file.read().split("-----BEGIN OTPS-----")
+        
+        d_key = rsa.PrivateKey.load_pkcs1(content[0].encode("utf-8"))
+        otp = content[1].split("\n")[1].encode("utf-8")
+
+    print("💌 Decrypting Content...")
+    try:
+        plaintext = qtrsa_decrypt(
+            ciphertext=ciphertext,
+            rsa_decryption_key=d_key,
+            passkey=passkey,
+            uniquekey=uniquekey,
+            otp=otp,
+            encoding="utf-8"
+        )
+    except:
+        print(f"❌ Decryption Failed!")
+        return
+
+    print(f"📝 Writing Decrypted Content -> {output}...")
+    with open(output, "wb") as output_file:
+        output_file.write(plaintext)
+    
+    print(f"🧬 Generating Hashes...")
+    md5_plain = hl.md5(plaintext)
+    sha1_plain = hl.sha1(plaintext)
+    md5_cipher = hl.md5(ciphertext)
+    sha1_cipher = hl.sha1(ciphertext)
+
+    print(f"✅ Successful Decryption!")
+
+    print()
+    print("===== Results =====")
+    print("# File Summary")
+    print(f"Decrypted File -> {output}") 
+    
+    print()
+    print("# Hash Summary")
+    print("-- Plain --")
+    print("MD5    :", md5_plain.hexdigest())
+    print("SHA1   :", sha1_plain.hexdigest())
+    print("-- Cipher --")
+    print("MD5    :", md5_cipher.hexdigest())
+    print("SHA1   :", sha1_cipher.hexdigest())
+
+def handle_verify(files: list[str]):
+    hash_functions = { "md5": hl.md5, "sha1": hl.sha1, "sha3": hl.sha3_256, "sha256": hl.sha256 }
+    
+    hash_results = []
+    for filename in files:
+        print(f"📖 Extracting contents and generating hashes... -> {filename}")
+        with open(filename, "rb") as file:
+            content = file.read()
+            hashes = { k: h(content).hexdigest() for k, h in hash_functions.items() }
+            hash_results.append((filename, hashes))
+    
+    print("✅ Successful Hashing!")
+    
+    print()
+    print("===== Results =====")
+    basis_name, basis_result = hash_results.pop(0)
+    print(f"-- {basis_name} (Basis) --")
+    print(*(f"{name:<8}: {res:<64}" for name, res in basis_result.items()), sep="\n")
+   
+    print()
+    for filename, hashes in hash_results:
+        print(f"-- {filename} --")
+        print(*(f"{name:<8}: {res:<64} [{'✅ MATCH' if basis_result[name] == res else '❌ MISMATCH'}]" for name, res in hashes.items()), sep="\n")
 
 def main():
-    print("===== Cryptography =====")
-    print("What do you want to do?")
-    print("[1] Encrypt")
-    print("[2] Decrypt")
-    print("[3] Verify Hash")
-    print("[4] Exit")
+    parser = argparse.ArgumentParser(
+        prog="qtrsa",
+        description="""
+        CLI for encrypting and decrypting files with 
+        Quad-Transposition RSA (QTRSA) encryption algorithm.
+        """,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        allow_abbrev=True,
+        epilog="Created by Jonh Alexis Buot (github.com/LaplaceXD)."
+    )
     
-    while True:
-        num_choice = input("Choice: ")
-        if num_choice.isdigit():
-            num_choice = int(num_choice)
-
-        os.system("cls")
-        if num_choice == 1:
-            plaintext_filename = cinput(f"{'Plaintext Filename':<30}: ", text_on_fail="File does not exist.", accept_if_pred=lambda f : os.path.exists(f))
-            
-            modulus = None
-            while modulus is None:
-                modulus = int(cinput(f"{'Key Modulus (>= 1024)':<30}: ", text_on_fail="Modulus must be a number", accept_if_pred=lambda n : n.isdigit()))
-                if modulus < 1024 or (modulus & (modulus - 1) != 0):
-                    print("Modulus must be greater than 1024 bits, and should be a power of 2")
-                    modulus = None
-            
-            vigenere_key = rinput(f"{'Passkey 1':<30}: ")
-            transpo_key = cinput(f"{'Passkey 2 (Unique Chars Only)':<30}: ", text_on_fail="Passkey must have each character repeat only once.", accept_if_pred=lambda s : len(set(s)) == len(s))
-           
-            output_filename = rinput(f"{'Output Filename':<30}: ")
-            d_key_output_filename = rinput(f"{'Decryption Key Filename':<30}: ")
-            
-            print()
-            print("===== Progress =====")
-            print(f"{'📖':<2} Extracting contents -> {plaintext_filename}...")
-            with open(plaintext_filename, "rb") as plaintext_file:
-                plaintext = plaintext_file.read()
+    subparsers = parser.add_subparsers(title="What would you like to do?", dest="action", description="Choose an action to perform.")
+    
+    encrypt_parser = subparsers.add_parser("encrypt", help="Encrypt a file.")
+    encrypt_parser.add_argument("file", metavar="<file>", help="Filename of the file to be encrypted.") 
+    encrypt_parser.add_argument("--passkey", "-p", metavar="<passphrase>", required=True, help="Passphrase.") 
+    encrypt_parser.add_argument("--uniquekey", "-u", metavar="<uniquephrase>", required=True, help="Passphare with no-repeating characters.") 
+    encrypt_parser.add_argument("--modulus", "-m", metavar="<size>", type=int, default=1024, help="Modulus / size of the key. (default: 1024)") 
+    encrypt_parser.add_argument("--output", "-o", metavar="<filename>", help="Output name of the file (default: [filename].encrypted.[ext])") 
+    encrypt_parser.add_argument("--keyname", "-k", metavar="<filename>", help="Output name of the decryption key (default: [filename].key.pem)") 
+    
+    decrypt_parser = subparsers.add_parser("decrypt", help="Decrypt a file.")
+    decrypt_parser.add_argument("file", metavar="<file>", help="Filename of the file to be decrypted.") 
+    decrypt_parser.add_argument("--passkey", "-p", metavar="<passphrase>", required=True, help="Passphrase.") 
+    decrypt_parser.add_argument("--uniquekey", "-u", metavar="<uniquephrase>", required=True, help="Passphare with no-repeating characters.") 
+    decrypt_parser.add_argument("--filekey", "-f", metavar="<filename>", required=True, help="Filename of the decryption key.") 
+    decrypt_parser.add_argument("--output", "-o", metavar="<filename>", help="Output name of the file (default: [filename].decrypted.[ext])") 
+    
+    verify_parser = subparsers.add_parser("verify", help="Verify and compare the hash signatures of two files.")
+    verify_parser.add_argument("files", nargs="*", help="A list of filenames to compare hash against. The first file will be used as basis.") 
+    
+    args = parser.parse_args()
+    
+    if args.action == "encrypt":
+        errors = []
        
-            print(f"{'🛠':<2}  Generating RSA keys...")
-            e_key, d_key = rsa.newkeys(modulus)
-            
-            print(f"{'🛡':<2}  Encrypting Content...")
-            ciphertext, otps = qtrsa_encrypt(
-                plaintext=plaintext,
-                rsa_encryption_key=e_key,
-                pass_key=vigenere_key,
-                unique_key=transpo_key,
-                encoding="utf-8"
-            )
-            
-            print(f"{'📝':<2} Writing Encrypted Content -> {output_filename}...")
-            with open(output_filename, "wb") as output_file:
-                output_file.write(ciphertext)
-            
-            print(f"{'📝':<2} Writing Decryption Key -> {d_key_output_filename}...")
-            with open(d_key_output_filename, "wb") as output_file:
-                output_file.write(d_key.save_pkcs1())
-
-                encoded_otps = "-----BEGIN OTPS-----\n".encode("utf-8")
-                encoded_otps += otps
-                encoded_otps += "\n-----END OTPS-----".encode("utf-8")
-                output_file.write(encoded_otps)
-            
-            print(f"{'🧬':<2} Generating Hashes...")
-            md5_cipher = hl.md5(ciphertext)
-            sha1_cipher = hl.sha1(ciphertext)
-            md5_plain = hl.md5(plaintext)
-            sha1_plain = hl.sha1(plaintext)
-
-            print(f"{'✅':<2} Successful Encryption!")
-
-            print()
-            print("===== Results =====")
-            print("# File Summary")
-            print(f"{'Encrypted File':<26} -> {output_filename}") 
-            print(f"{'Decryption Key File':<26} -> {d_key_output_filename}") 
-            
-            print()
-            print("# Hash Summary")
-            print(f"{'Plain -> MD5':<18}:", md5_plain.hexdigest())
-            print(f"{'Cipher -> MD5':<18}:", md5_cipher.hexdigest())
-            print(f"{'Plain -> SHA1':<18}:", sha1_plain.hexdigest())
-            print(f"{'Cipher -> SHA1':<18}:", sha1_cipher.hexdigest())
-
-        elif num_choice == 2:
-            ciphertext_filename = cinput(f"{'Ciphertext Filename':<30}: ", text_on_fail="File does not exist.", accept_if_pred=lambda f : os.path.exists(f))
-            d_key_filename = cinput(f"{'Decryption Key Filename':<30}: ", text_on_fail="File does not exist.", accept_if_pred=lambda f : os.path.exists(f))
-            
-            vigenere_key = rinput(f"{'Passkey 1':<30}: ")
-            transpo_key = rinput(f"{'Passkey 2':<30}: ")
-           
-            output_filename = rinput(f"{'Output Filename':<30}: ")
-            
-            print()
-            print("===== Progress =====")
-            print(f"{'📖':<2} Extracting contents -> {ciphertext_filename}...")
-            with open(ciphertext_filename, "rb") as ciphertext_file:
-                ciphertext = ciphertext_file.read()
-            
-            print(f"{'📖':<2} Parsing Decryption Key -> {d_key_filename}...")
-            with open(d_key_filename, "r") as d_key_file:
-                key_content = d_key_file.read()
-                content = key_content.split("-----BEGIN OTPS-----")
-                
-                d_key = rsa.PrivateKey.load_pkcs1(content[0].encode("utf-8"))
-                otps = content[1].split("\n")[1].encode("utf-8")
-            
-            print(f"{'💌':<2} Decrypting Content...")
-            try:
-                plaintext = qtrsa_decrypt(
-                    ciphertext=ciphertext,
-                    rsa_decryption_key=d_key,
-                    pass_key=vigenere_key,
-                    unique_key=transpo_key,
-                    otp=otps,
-                    encoding="utf-8"
-                )
-            except:
-                print(f"{'❌':<2} Decryption Failed!")
-            else:
-                print(f"{'📝':<2} Writing Decrypted Content -> {output_filename}...")
-                with open(output_filename, "wb") as output_file:
-                    output_file.write(plaintext)
-                
-                print(f"{'🧬':<2} Generating Hashes...")
-                md5_plain = hl.md5(plaintext)
-                sha1_plain = hl.sha1(plaintext)
-                md5_cipher = hl.md5(ciphertext)
-                sha1_cipher = hl.sha1(ciphertext)
-
-                print(f"{'✅':<2} Successful Decryption!")
-
-                print()
-                print("===== Results =====")
-                print("# File Summary")
-                print(f"{'Decrypted File':<26} -> {output_filename}") 
-                
-                print()
-                print("# Hash Summary")
-                print(f"{'Cipher -> MD5':<18}:", md5_cipher.hexdigest())
-                print(f"{'Plain -> MD5':<18}:", md5_plain.hexdigest())
-                print(f"{'Cipher -> SHA1':<18}:", sha1_cipher.hexdigest())
-                print(f"{'Plain -> SHA1':<18}:", sha1_plain.hexdigest())
-            
-        elif num_choice == 3:
-            filename_one = cinput(f"{'Filename 1':<30}: ", text_on_fail="File does not exist.", accept_if_pred=lambda f : os.path.exists(f))
-            filename_two = cinput(f"{'Filename 2':<30}: ", text_on_fail="File does not exist.", accept_if_pred=lambda f : os.path.exists(f))
-            
-            print()
-            print("===== Progress =====")
-            print(f"{'📖':<2} Extracting contents -> {filename_one}...")
-            with open(filename_one, "rb") as file_one:
-                file_one_contents = file_one.read()
-            
-            print(f"{'📖':<2} Extracting contents -> {filename_two}...")
-            with open(filename_two, "rb") as file_two:
-                file_two_contents = file_two.read()
-
-            print(f"{'🧬':<2} Generating Hashes...")
-            md5_f1 = hl.md5(file_one_contents)
-            md5_f2 = hl.md5(file_two_contents)
-            
-            sha1_f1 = hl.sha1(file_one_contents)
-            sha1_f2 = hl.sha1(file_two_contents)
-            
-            sha3_f1 = hl.sha3_256(file_one_contents)
-            sha3_f2 = hl.sha3_256(file_two_contents)
-            
-            sha256_f1 = hl.sha256(file_one_contents)
-            sha256_f2 = hl.sha256(file_two_contents)
-
-            print(f"{'✅':<2} Successful Hashing!")
-            
-            print()
-            print("===== Results =====")
-            print("MD5", f'[{"MATCHED ✅" if md5_f1.digest() == md5_f2.digest() else "MISMATCH ❌"}]')
-            print(f"{filename_one:<18}:", md5_f1.hexdigest())
-            print(f"{filename_two:<18}:", md5_f2.hexdigest())
-            print()
-            
-            print("SHA1", f'[{"MATCHED ✅" if sha1_f1.digest() == sha1_f2.digest() else "MISMATCH ❌"}]')
-            print(f"{filename_one:<18}:", sha1_f1.hexdigest())
-            print(f"{filename_two:<18}:", sha1_f2.hexdigest())
-            print()
-            
-            print("SHA3", f'[{"MATCHED ✅" if sha3_f1.digest() == sha3_f2.digest() else "MISMATCH ❌"}]')
-            print(f"{filename_one:<18}:", sha3_f1.hexdigest())
-            print(f"{filename_two:<18}:", sha3_f2.hexdigest())
-            print()
-            
-            print("SHA256", f'[{"MATCHED ✅" if sha256_f1.digest() == sha256_f2.digest() else "MISMATCH ❌"}]')
-            print(f"{filename_one:<18}:", sha256_f1.hexdigest())
-            print(f"{filename_two:<18}:", sha256_f2.hexdigest())
-            print()
+        # Validations
+        if not os.path.exists(args.file):
+            errors.append("qtrsa encrypt: error: File does not exist.")
         
-        elif num_choice == 4:
-            break
+        if not args.uniquekey:
+            errors.append("qtrsa encrypt: error: Unique key must have a non-empty argument.")
+        elif len(set(args.uniquekey)) != len(args.uniquekey):
+            errors.append("qtrsa encrypt: error: Unique key must be a passphrase containing no repeating characters.")
+        
+        if not args.passkey:
+            errors.append("qtrsa encrypt: error: Pass key must have a non-empty argument.")
+        
+        if args.modulus < 512 or (args.modulus & (args.modulus - 1) != 0):
+            errors.append("qtrsa encrypt: error: Modulus must be greater than or equal to 512 bits, and should be a power of 2.")
+        
+        if len(errors) != 0:
+            return print(*errors, sep="\n")
+        
+        # Defaults
+        if not args.output:
+            split_file = args.file.split(".")
+            split_file.insert(-1, "encrypted")
+            args.output = ".".join(split_file)
 
-        else:
-            print("Invalid value.")
+        if not args.keyname:
+            split_file = args.file.split(".")
+            split_file.insert(-1, "key")
+            split_file.insert(-1, "pem")
+            args.keyname = ".".join(split_file[:-1])
         
-        print()
-        input("Press Enter to Continue...")
+        handle_encrypt(
+            filename=args.file,
+            modulus=args.modulus,
+            passkey=args.passkey,
+            uniquekey=args.uniquekey,
+            output=args.output,
+            keyname=args.keyname
+        )
+    elif args.action == "decrypt":
+        errors = []
+       
+        # Validations
+        if not os.path.exists(args.file):
+            errors.append("qtrsa encrypt: error: File does not exist.")
         
-        os.system("cls")
-        print("===== Cryptography =====")
-        print("What do you want to do?")
-        print("[1] Encrypt")
-        print("[2] Decrypt")
-        print("[3] Verify Hash")
-        print("[4] Exit")
+        if not os.path.exists(args.filekey):
+            errors.append("qtrsa encrypt: error: File Key does not exist.")
+        
+        if not args.uniquekey:
+            errors.append("qtrsa encrypt: error: Unique key must have a non-empty argument.")
+        
+        if not args.passkey:
+            errors.append("qtrsa encrypt: error: Pass key must have a non-empty argument.")
+
+        if len(errors) != 0:
+            return print(*errors, sep="\n")
+        
+        # Defaults
+        if not args.output:
+            split_file = args.file.replace(".encrypted", "").split(".")
+            split_file.insert(-1, "decrypted")
+            args.output = ".".join(split_file)
+
+        handle_decrypt(
+            filename=args.file,
+            passkey=args.passkey,
+            uniquekey=args.uniquekey,
+            filekey=args.filekey,
+            output=args.output
+        )
+    elif args.action == "verify":
+        errors = []
+        if len(args.files) <= 1:
+            errors.append("qtrsa encrypt: error: File list must at least have 2 filenames.")
+        
+        for filename in args.files:
+            if not os.path.exists(filename):
+                errors.append(f"qtrsa encrypt: error: The file named {filename} does not exist.")
+        
+        if len(errors) != 0:
+            return print(*errors, sep="\n")
+        
+        handle_verify(files=args.files)
+    else:
+        parser.print_help()
 
 if __name__ == "__main__":
     main()
