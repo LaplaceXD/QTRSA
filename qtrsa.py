@@ -329,17 +329,17 @@ if __name__ == "__main__":
     
     encrypt_parser = subparsers.add_parser("encrypt", help="Encrypt a file.")
     encrypt_parser.add_argument("file", metavar="<file>", help="Filename of the file to be encrypted.") 
+    encrypt_parser.add_argument("--modulus", "-m", metavar="<size>", type=int, default=1024, help="Modulus / size of the key. (default: 1024)") 
     encrypt_parser.add_argument("--passkey", "-p", metavar="<passphrase>", required=True, help="Passphrase.") 
     encrypt_parser.add_argument("--uniquekey", "-u", metavar="<uniquephrase>", required=True, help="Passphare with no-repeating characters.") 
-    encrypt_parser.add_argument("--modulus", "-m", metavar="<size>", type=int, default=1024, help="Modulus / size of the key. (default: 1024)") 
-    encrypt_parser.add_argument("--output", "-o", metavar="<filename>", help="Output name of the file (default: [filename].encrypted.[ext])") 
     encrypt_parser.add_argument("--keyname", "-k", metavar="<filename>", help="Output name of the decryption key (default: [filename].key.pem)") 
+    encrypt_parser.add_argument("--output", "-o", metavar="<filename>", help="Output name of the file (default: [filename].encrypted.[ext])") 
     
     decrypt_parser = subparsers.add_parser("decrypt", help="Decrypt a file.")
     decrypt_parser.add_argument("file", metavar="<file>", help="Filename of the file to be decrypted.") 
     decrypt_parser.add_argument("--passkey", "-p", metavar="<passphrase>", required=True, help="Passphrase.") 
     decrypt_parser.add_argument("--uniquekey", "-u", metavar="<uniquephrase>", required=True, help="Passphare with no-repeating characters.") 
-    decrypt_parser.add_argument("--filekey", "-f", metavar="<filename>", required=True, help="Filename of the decryption key.") 
+    decrypt_parser.add_argument("--keyname", "-k", metavar="<filename>", required=True, help="Filename of the decryption key.") 
     decrypt_parser.add_argument("--output", "-o", metavar="<filename>", help="Output name of the file (default: [filename].decrypted.[ext])") 
     
     verify_parser = subparsers.add_parser("verify", help="Verify and compare the hash signatures of two files.")
