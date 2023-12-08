@@ -105,37 +105,37 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     # Encrypt the text first in RSA, and then encode it to Base64
     rsa_cipher = rsa_encrypt(plaintext, rsa_encryption_key)
     encoded_text, padding = parse_b64(base64.b64encode(rsa_cipher).decode(encoding))
-    
+
     # Build the keys for Vernam, Caesar, and Vigenere
     one_time_pads = ""
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
     encoded_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     
-    # Build the columns of the Transposition Cipher, and let each column go through a different cipher
-    skips = len(uniquekey)
-    columns = ["".join(encoded_text[start_skip::skips]) for start_skip in range(skips)]
+    # Pad the text, so it gets split into equal length columns during the Transposition Cipher
+    padding_length = len(uniquekey) - len(encoded_text) % len(uniquekey)
+    padded_text = encoded_text + "".join(random.choices(non_b64, k=padding_length))
     
-    for i, col in enumerate(columns):
+    # Build the rows of the Transposition Cipher, and let each row go through a different cipher
+    row_length = len(uniquekey)
+    rows = ["".join(padded_text[end_range - row_length:end_range]) for end_range in range(row_length, len(padded_text) + 1, row_length)] 
+    
+    for i, row in enumerate(rows):
         if   i % 4 == 0:
-            columns[i] = abash_cipher(col, b64)
+            rows[i] = abash_cipher(row, b64)
         elif i % 4 == 1:
-            columns[i] = caesar_cipher(col, rot, b64)
+            rows[i] = caesar_cipher(row, rot, b64)
         elif i % 4 == 2:
-            columns[i] = vigenere_cipher(col, encoded_pass_key, b64)
+            rows[i] = vigenere_cipher(row, encoded_pass_key, b64)
         elif i % 4 == 3:
-            otp = generate_otp(len(col), b64)
-            columns[i] = vernam_cipher(col, otp, b64)
+            otp = generate_otp(len(row), b64)
+            rows[i] = vernam_cipher(row, otp, b64)
             one_time_pads += otp
     
-    # Pad the columns with non Base64 characters so they are of equal length
-    max_column_length = max(len(column) for column in columns)
-    padded_columns = [column.ljust(max_column_length, random.choice(non_b64)) for column in columns]
+    # Transpose the rows, and finish the Transposition Cipher by sorting the columns by the key
+    sorted_key_column_pairs = sorted(zip(uniquekey, *rows), key=lambda pairs : pairs[0])
     
-    # Finish the Transposition Cipher by sorting the columns by the key
-    sorted_key_column_pairs = sorted(zip(uniquekey, padded_columns), key=lambda pairs : pairs[0])
-    
-    # Modified Step for Transposition Cipher read the end by row instead of column to mix the ciphers
-    ciphertext = "".join("".join(row) for row in zip(*(column for _, column in sorted_key_column_pairs))) + padding
+    # Read the text by columns to build the ciphertext
+    ciphertext = "".join("".join(column[1:]) for column in sorted_key_column_pairs) + padding
     return ciphertext.encode(encoding), base64.b64encode(one_time_pads.encode(encoding))
 
 def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey: str, uniquekey: str, otp: bytes, encoding = "utf-8"):
@@ -149,33 +149,28 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     encoded_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     
     # Regenerate the columns of the Transposition Cipher
-    skips = len(uniquekey)
-    sorted_columns = ["".join(encoded_text[start_skip::skips]) for start_skip in range(skips)]
-    
-    # Remove the padding from the columns
-    unpadded_columns = ["".join(c for c in column if c in b64) for column in sorted_columns]
+    column_length = len(encoded_text) // len(uniquekey)
+    sorted_columns = ["".join(encoded_text[end_range - column_length:end_range]) for end_range in range(column_length, len(encoded_text) + 1, column_length)]
     
     # Unsort the columns of the Transposition Cipher by using the unique key
-    unsorted_columns = sorted(zip(sorted(uniquekey), unpadded_columns), key=lambda pairs : uniquekey.index(pairs[0]))
+    unsorted_columns = sorted(zip(sorted(uniquekey), sorted_columns), key=lambda pairs : uniquekey.index(pairs[0]))
     columns = [column for _, column in unsorted_columns]
     
-    # Reverse the cipher performed on each column
-    for i, col in enumerate(columns):
+    # Transpose the columns into rows, and reverse the ciphers on each row
+    rows = ["".join(row) for row in zip(*columns)]
+    for i, row in enumerate(rows):
         if   i % 4 == 0:
-            columns[i] = abash_cipher(col, b64)
+            rows[i] = abash_cipher(row, b64)
         elif i % 4 == 1:
-            columns[i] = caesar_cipher(col, rot, b64, reversed=True)
+            rows[i] = caesar_cipher(row, rot, b64, reversed=True)
         elif i % 4 == 2:
-            columns[i] = vigenere_cipher(col, encoded_pass_key, b64, reversed=True)
+            rows[i] = vigenere_cipher(row, encoded_pass_key, b64, reversed=True)
         elif i % 4 == 3:
-            col_otp, one_time_pads = one_time_pads[:len(col)], one_time_pads[len(col):]
-            columns[i] = vernam_cipher(col, col_otp, b64)
+            row_otp, one_time_pads = one_time_pads[:len(row)], one_time_pads[len(row):]
+            rows[i] = vernam_cipher(row, row_otp, b64)
     
-    # Regenerate the RSA encrypted text by reading the columns row-wise
-    max_column_length = max(len(column) for column in columns)
-    space_padded_columns = [column.ljust(max_column_length) for column in columns]
-    encoded_rsa_encrypted_text = "".join("".join(row) for row in zip(*space_padded_columns))
-    encoded_rsa_encrypted_text = encoded_rsa_encrypted_text.strip() + padding
+    # Regenerate the RSA encrypted text by reading the rows and stripping the non-Base64 padding characters
+    encoded_rsa_encrypted_text = "".join("".join(c for c in row if c in b64) for row in rows) + padding
 
     # Reverse the encoding, and decrypt the RSA layer
     rsa_encrypted_text = base64.b64decode(encoded_rsa_encrypted_text.encode(encoding))
@@ -237,13 +232,13 @@ def qtrsa_encrypt_file(filename: str, modulus: int, passkey: str, uniquekey: str
     print("MD5    :", md5_cipher.hexdigest())
     print("SHA1   :", sha1_cipher.hexdigest())
 
-def qtrsa_decrypt_file(filename: str, filekey: str, passkey: str, uniquekey: str, output: str):
-    print(f"📖 Extracting contents...    -> {filename}")
+def qtrsa_decrypt_file(filename: str, keyname: str, passkey: str, uniquekey: str, output: str):
+    print(f"📖 Extracting contents...       -> {filename}")
     with open(filename, "rb") as file:
         ciphertext = file.read()
 
-    print(f"📖 Parsing Decryption Key... -> {filekey}")
-    with open(filekey, "r") as key_file:
+    print(f"📖 Parsing Decryption Key...    -> {keyname}")
+    with open(keyname, "r") as key_file:
         content = key_file.read().split("-----BEGIN OTPS-----")
         
         d_key = rsa.PrivateKey.load_pkcs1(content[0].encode("utf-8"))
@@ -263,7 +258,7 @@ def qtrsa_decrypt_file(filename: str, filekey: str, passkey: str, uniquekey: str
         print(f"❌ Decryption Failed!")
         return
 
-    print(f"📝 Writing Decrypted Content -> {output}...")
+    print(f"📝 Writing Decrypted Content... -> {output}")
     with open(output, "wb") as output_file:
         output_file.write(plaintext)
     
@@ -397,7 +392,7 @@ if __name__ == "__main__":
         if not os.path.exists(args.file):
             errors.append("qtrsa encrypt: error: File does not exist.")
         
-        if not os.path.exists(args.filekey):
+        if not os.path.exists(args.keyname):
             errors.append("qtrsa encrypt: error: File Key does not exist.")
         
         if not args.uniquekey:
@@ -421,7 +416,7 @@ if __name__ == "__main__":
             filename=args.file,
             passkey=args.passkey,
             uniquekey=args.uniquekey,
-            filekey=args.filekey,
+            keyname=args.keyname,
             output=args.output
         )
     elif args.action == "verify":
