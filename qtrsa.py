@@ -184,7 +184,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     return plaintext
 
 # ===== VIEWS AND HANDLERS =====
-def handle_encrypt(filename: str, modulus: int, passkey: str, uniquekey: str, output: str, keyname: str):
+def qtrsa_encrypt_file(filename: str, modulus: int, passkey: str, uniquekey: str, output: str, keyname: str):
     print(f"📖 Extracting contents...       <- {filename}")
     with open(filename, "rb") as file:
         plaintext = file.read()
@@ -237,7 +237,7 @@ def handle_encrypt(filename: str, modulus: int, passkey: str, uniquekey: str, ou
     print("MD5    :", md5_cipher.hexdigest())
     print("SHA1   :", sha1_cipher.hexdigest())
 
-def handle_decrypt(filename: str, filekey: str, passkey: str, uniquekey: str, output: str):
+def qtrsa_decrypt_file(filename: str, filekey: str, passkey: str, uniquekey: str, output: str):
     print(f"📖 Extracting contents...    -> {filename}")
     with open(filename, "rb") as file:
         ciphertext = file.read()
@@ -289,7 +289,7 @@ def handle_decrypt(filename: str, filekey: str, passkey: str, uniquekey: str, ou
     print("MD5    :", md5_cipher.hexdigest())
     print("SHA1   :", sha1_cipher.hexdigest())
 
-def handle_verify(files: list[str]):
+def verify_file_hashes(files: list[str]):
     hash_functions = { "md5": hl.md5, "sha1": hl.sha1, "sha3": hl.sha3_256, "sha256": hl.sha256 }
     
     hash_results = []
@@ -313,7 +313,7 @@ def handle_verify(files: list[str]):
         print(f"-- {filename} --")
         print(*(f"{name:<8}: {res:<64} [{'✅ MATCH' if basis_result[name] == res else '❌ MISMATCH'}]" for name, res in hashes.items()), sep="\n")
 
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog="qtrsa",
         description="""
@@ -366,7 +366,9 @@ def main():
             errors.append("qtrsa encrypt: error: Modulus must be greater than or equal to 512 bits, and should be a power of 2.")
         
         if len(errors) != 0:
-            return print(*errors, sep="\n")
+            print(*errors, sep="\n", end="\n\n")
+            encrypt_parser.print_help()
+            exit(1)
         
         # Defaults
         if not args.output:
@@ -380,7 +382,7 @@ def main():
             split_file.insert(-1, "pem")
             args.keyname = ".".join(split_file[:-1])
         
-        handle_encrypt(
+        qtrsa_encrypt_file(
             filename=args.file,
             modulus=args.modulus,
             passkey=args.passkey,
@@ -405,7 +407,9 @@ def main():
             errors.append("qtrsa encrypt: error: Pass key must have a non-empty argument.")
 
         if len(errors) != 0:
-            return print(*errors, sep="\n")
+            print(*errors, sep="\n", end="\n\n")
+            decrypt_parser.print_help()
+            exit(1)
         
         # Defaults
         if not args.output:
@@ -413,7 +417,7 @@ def main():
             split_file.insert(-1, "decrypted")
             args.output = ".".join(split_file)
 
-        handle_decrypt(
+        qtrsa_decrypt_file(
             filename=args.file,
             passkey=args.passkey,
             uniquekey=args.uniquekey,
@@ -430,11 +434,10 @@ def main():
                 errors.append(f"qtrsa encrypt: error: The file named {filename} does not exist.")
         
         if len(errors) != 0:
-            return print(*errors, sep="\n")
+            print(*errors, sep="\n", end="\n\n")
+            verify_parser.print_help()
+            exit(1)
         
-        handle_verify(files=args.files)
+        verify_file_hashes(files=args.files)
     else:
         parser.print_help()
-
-if __name__ == "__main__":
-    main()
