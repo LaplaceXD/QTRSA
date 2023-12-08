@@ -203,10 +203,10 @@ def qtrsa_encrypt_file(filename: str, modulus: int, passkey: str, uniquekey: str
     print(f"📝 Writing Decryption Key...    -> {keyname}")
     with open(keyname, "wb") as key_file:
         split_key = d_key.save_pkcs1().split(b"\n")
-        otp = b"\xe2\x80\x8b" + otp + b"\xe2\x80\x8b"
         otp = b"\n".join(otp[start:start+64] for start in range(0, len(otp), 64))
+        otp = b"\xe2\x80\x8b" + otp + b"\xe2\x80\x8b"
         split_key.insert(-2, otp)
-        
+
         key_file.write(b"\n".join(split_key))
     
     print("🧬 Generating Hashes...")
@@ -240,8 +240,9 @@ def qtrsa_decrypt_file(filename: str, keyname: str, passkey: str, uniquekey: str
     print(f"📖 Parsing Decryption Key...    -> {keyname}")
     with open(keyname, "rb") as key_file:
         keys = key_file.read().split(b"\xe2\x80\x8b")
+
         d_key = rsa.PrivateKey.load_pkcs1(keys[0] + keys[2])
-        otp = keys[1]
+        otp = keys[1].replace(b"\n", b"")
 
     print("💌 Decrypting Content...")
     try:
