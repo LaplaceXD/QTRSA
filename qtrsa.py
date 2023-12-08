@@ -1,6 +1,6 @@
 import os
 import argparse
-import random
+import secrets
 import string
 import base64
 import hashlib as hl
@@ -8,7 +8,7 @@ import hashlib as hl
 import rsa
 
 # ===== CIPHER FUNCTIONS =====
-def atbash_cipher(text: str, space: list[str] | str):
+def abash_cipher(text: str, space: list[str] | str):
     """ 
     Flips the characters in a text to their opposite counterparts in a 
     given character space. Characters that are not in the space are ignored.
@@ -39,7 +39,7 @@ def generate_otp(size: int, space: list[str] | str):
     """
     Generates a one time pad of a given size from a character space.
     """
-    return "".join(random.choices(space, k=size))
+    return "".join(secrets.choice(space) for _ in range(size))
 
 def vernam_cipher(text: str, one_time_pad: str, space: list[str] | str):
     """
@@ -113,7 +113,7 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     
     # Pad the text, so it gets split into equal length columns during the Transposition Cipher
     padding_length = len(uniquekey) - len(encoded_text) % len(uniquekey)
-    padded_text = encoded_text + "".join(random.choices(non_b64, k=padding_length))
+    padded_text = encoded_text + "".join(secrets.choice(non_b64) for _ in range(padding_length))
     
     # Build the rows of the Transposition Cipher, and let each row go through a different cipher
     row_length = len(uniquekey)
@@ -121,7 +121,7 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     
     for i, row in enumerate(rows):
         if   i % 4 == 0:
-            rows[i] = atbash_cipher(row, b64)
+            rows[i] = abash_cipher(row, b64)
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64)
         elif i % 4 == 2:
@@ -160,7 +160,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     rows = ["".join(row) for row in zip(*columns)]
     for i, row in enumerate(rows):
         if   i % 4 == 0:
-            rows[i] = atbash_cipher(row, b64)
+            rows[i] = abash_cipher(row, b64)
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64, reversed=True)
         elif i % 4 == 2:
