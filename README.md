@@ -9,7 +9,7 @@ Quad-Transpositional RSA (QTRSA) is a modified [Rivet-Shamir-Aldeman (RSA)](http
 > As a side note, this project was built in partial fulfillment for my course `CS3106 - Information Assurance and Security`. This course tackles concepts about cybersecurity, network security, digital forensics, and cryptography.
 
 ## Setup
-**Prerequisites:** Make sure you have [`Python`](https://www.python.org/downloads/), and the `python` library [rsa](https://pypi.org/project/rsa/) installed. The latter can be installed via [`pip`](https://pypi.org/project/pip/) by using the command `pip install rsa`.
+**Prerequisites:** Make sure you have [`Python`](https://www.python.org/downloads/), and the [rsa](https://pypi.org/project/rsa/) `python` library installed. The latter can be installed via [`pip`](https://pypi.org/project/pip/) by using the command `pip install rsa`.
 
 1. Clone this repository.
 2. `cd` into the cloned repository.
