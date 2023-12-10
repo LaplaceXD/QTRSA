@@ -84,14 +84,13 @@ def rsa_decrypt(ciphertext: bytes, decryption_key: rsa.PrivateKey):
     return plain
 
 # ===== QTRSA FUNCTIONS =====
-def get_b64_chars():
-    """ Gets the characters used in Base64 Encoding. """
-    return string.ascii_uppercase + string.ascii_lowercase + string.digits + "+/" 
+def get_b64_char_space():
+    """ Gets a tuple containing the character space of Base64, and the valid characters that are not used in the Base64 space. """
+    b64 = string.ascii_uppercase + string.ascii_lowercase + string.digits + "+/"
+    b64_with_padding = b64 + "="
+    non_b64 = "".join(c for c in string.punctuation if c not in b64_with_padding)
 
-def get_padding_b64_chars():
-    """ Get punctuation characters that are not used in Base64 Encoding. """
-    b64_with_padding = get_b64_chars() + "="
-    return "".join(c for c in string.punctuation if c not in b64_with_padding)
+    return b64, non_b64
 
 def parse_b64(b64_text: str):
     """ Parses a Base64 text by splitting its padding and the actual content. """
@@ -104,8 +103,7 @@ def parse_b64(b64_text: str):
 
 def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: str, uniquekey: str, encoding: str = "utf-8"):
     """ Encrypt a given text with QTRSA encryption. """
-    b64 = get_b64_chars() 
-    non_b64 = get_padding_b64_chars()
+    b64, non_b64 = get_b64_char_space() 
 
     # Encrypt the text first in RSA, and then encode it to Base64
     rsa_cipher = rsa_encrypt(plaintext, rsa_encryption_key)
@@ -145,16 +143,15 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
 
 def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey: str, uniquekey: str, otp: bytes, encoding = "utf-8"):
     """ Decrypt a given text that was encrypted with QTRSA encryption. """
-    b64 = get_b64_chars()
-    non_b64 = get_padding_b64_chars()
-    decoded_text, padding = parse_b64(ciphertext.decode(encoding))
+    b64, non_b64 = get_b64_char_space() 
 
     # Build the Keys for Vernam, Caesar, and Vigenere
     one_time_pads = base64.b64decode(otp).decode(encoding)
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
     encoded_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     
-    # Regenerate the columns of the Transposition Cipher
+    # Parse the Base64 ciphertext and regenerate the columns of the Transposition Cipher
+    decoded_text, padding = parse_b64(ciphertext.decode(encoding))
     column_length = len(decoded_text) // len(uniquekey)
     sorted_columns = ["".join(decoded_text[start:start+column_length]) for start in range(0, len(decoded_text), column_length)]
     
