@@ -239,11 +239,11 @@ def qtrsa_encrypt_file(filename: str, modulus: int, passkey: str, uniquekey: str
     print("SHA1   :", sha1_cipher.hexdigest())
 
 def qtrsa_decrypt_file(filename: str, keyname: str, passkey: str, uniquekey: str, output: str):
-    print(f"📖 Extracting contents...       -> {filename}")
+    print(f"📖 Extracting contents...       <- {filename}")
     with open(filename, "rb") as file:
         ciphertext = file.read()
 
-    print(f"📖 Parsing Decryption Key...    -> {keyname}")
+    print(f"📖 Parsing Decryption Key...    <- {keyname}")
     with open(keyname, "rb") as key_file:
         keys = key_file.read().split(b"\xe2\x80\x8b")
 
@@ -295,7 +295,7 @@ def verify_file_hashes(files: list[str]):
     
     hash_results = []
     for filename in files:
-        print(f"📖 Extracting contents and generating hashes... -> {filename}")
+        print(f"📖 Extracting contents and generating hashes... <- {filename}")
         with open(filename, "rb") as file:
             content = file.read()
             hashes = { k: h(content).hexdigest() for k, h in hash_functions.items() }
