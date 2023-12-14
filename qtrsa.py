@@ -112,8 +112,9 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     # Build the keys for Vernam, Caesar, and Vigenere
     one_time_pads = ""
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
-    encoded_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
-    
+    b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
+    last_used_key_position = 0
+
     # Pad the text, so it gets split into equal length columns during the Transposition Cipher
     padding_length = len(uniquekey) - len(encoded_text) % len(uniquekey)
     padded_text = encoded_text + "".join(secrets.choice(non_b64) for _ in range(padding_length))
@@ -128,12 +129,21 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64)
         elif i % 4 == 2:
-            rows[i] = vigenere_cipher(row, encoded_pass_key, b64)
+            # Retrieve a portion of the b64 pass key with the same length as the row
+            # This is done in circular fashion, so if the key doesn't equal length of row 
+            # it appends a portion of the start
+            last_used_key_position += len(row)
+            curr_pass_key = b64_pass_key[last_used_key_position-len(row):last_used_key_position]
+            if len(curr_pass_key) != len(row):
+                last_used_key_position = len(row) - len(curr_pass_key)
+                curr_pass_key += b64_pass_key[:last_used_key_position]
+
+            rows[i] = vigenere_cipher(row, curr_pass_key, b64)
         elif i % 4 == 3:
             otp = generate_otp(len(row), b64)
             rows[i] = vernam_cipher(row, otp, b64)
             one_time_pads += otp
-    
+
     # Transpose the rows, and finish the Transposition Cipher by sorting the columns by the key
     sorted_key_column_pairs = sorted(zip(uniquekey, *rows), key=lambda pairs : pairs[0])
     
@@ -148,8 +158,9 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     # Build the Keys for Vernam, Caesar, and Vigenere
     one_time_pads = base64.b64decode(otp).decode(encoding)
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
-    encoded_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
-    
+    b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
+    last_used_key_position = 0
+
     # Parse the Base64 ciphertext and regenerate the columns of the Transposition Cipher
     decoded_text, padding = parse_b64(ciphertext.decode(encoding))
     column_length = len(decoded_text) // len(uniquekey)
@@ -167,7 +178,16 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64, reversed=True)
         elif i % 4 == 2:
-            rows[i] = vigenere_cipher(row, encoded_pass_key, b64, reversed=True)
+            # Retrieve a portion of the b64 pass key with the same length as the row
+            # This is done in circular fashion, so if the key doesn't equal length of row 
+            # it appends a portion of the start
+            last_used_key_position += len(row)
+            curr_pass_key = b64_pass_key[last_used_key_position-len(row):last_used_key_position]
+            if len(curr_pass_key) != len(row):
+                last_used_key_position = len(row) - len(curr_pass_key)
+                curr_pass_key += b64_pass_key[:last_used_key_position]
+            
+            rows[i] = vigenere_cipher(row, curr_pass_key, b64, reversed=True)
         elif i % 4 == 3:
             row_otp, one_time_pads = one_time_pads[:len(row)], one_time_pads[len(row):]
             rows[i] = vernam_cipher(row, row_otp, b64)
