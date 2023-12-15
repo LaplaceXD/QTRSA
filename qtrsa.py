@@ -109,20 +109,21 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     rsa_cipher = rsa_encrypt(plaintext, rsa_encryption_key)
     encoded_text, padding = parse_b64(base64.b64encode(rsa_cipher).decode(encoding))
 
+    # Pad the text, so it gets split into equal length columns during the Transposition Cipher
+    padding_length = len(uniquekey) - len(encoded_text) % len(uniquekey)
+    padded_text = encoded_text + "".join(secrets.choice(non_b64) for _ in range(padding_length))
+    
+    # Build the rows of the Transposition Cipher
+    row_length = len(uniquekey)
+    rows = ["".join(padded_text[start:start+row_length]) for start in range(0, len(padded_text), row_length)] 
+    
     # Build the keys for Vernam, Caesar, and Vigenere
     one_time_pads = ""
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     last_key_end_position = 0
-
-    # Pad the text, so it gets split into equal length columns during the Transposition Cipher
-    padding_length = len(uniquekey) - len(encoded_text) % len(uniquekey)
-    padded_text = encoded_text + "".join(secrets.choice(non_b64) for _ in range(padding_length))
     
-    # Build the rows of the Transposition Cipher, and let each row go through a different cipher
-    row_length = len(uniquekey)
-    rows = ["".join(padded_text[start:start+row_length]) for start in range(0, len(padded_text), row_length)] 
-    
+    # Cipher each row with a different cipher
     for i, row in enumerate(rows):
         if   i % 4 == 0:
             rows[i] = abash_cipher(row, b64)
@@ -154,12 +155,6 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     """ Decrypt a given text that was encrypted with QTRSA encryption. """
     b64, non_b64 = get_b64_char_space() 
 
-    # Build the Keys for Vernam, Caesar, and Vigenere
-    one_time_pads = base64.b64decode(otp).decode(encoding)
-    rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
-    b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
-    last_key_end_position = 0
-
     # Parse the Base64 ciphertext and regenerate the columns of the Transposition Cipher
     decoded_text, padding = parse_b64(ciphertext.decode(encoding))
     column_length = len(decoded_text) // len(uniquekey)
@@ -169,8 +164,16 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     unsorted_columns = sorted(zip(sorted(uniquekey), sorted_columns), key=lambda pairs : uniquekey.index(pairs[0]))
     columns = [column for _, column in unsorted_columns]
     
-    # Transpose the columns into rows, and reverse the ciphers on each row
+    # Transpose the columns into rows
     rows = ["".join(row) for row in zip(*columns)]
+    
+    # Build the Keys for Vernam, Caesar, and Vigenere
+    one_time_pads = base64.b64decode(otp).decode(encoding)
+    rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
+    b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
+    last_key_end_position = 0
+    
+    # Reverse the ciphers on each row
     for i, row in enumerate(rows):
         if   i % 4 == 0:
             rows[i] = abash_cipher(row, b64)
