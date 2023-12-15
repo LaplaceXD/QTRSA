@@ -138,7 +138,7 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     ciphertext = "".join("".join(column[1:]) for column in sorted_key_column_pairs) + padding
     return ciphertext.encode(encoding), base64.b64encode(one_time_pads.encode(encoding))
 
-def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey: str, uniquekey: str, otp: bytes, encoding = "utf-8"):
+def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey: str, uniquekey: str, one_time_pad: bytes, encoding = "utf-8"):
     """ Decrypt a given text that was encrypted with QTRSA encryption. """
     b64, non_b64 = get_b64_char_space() 
 
@@ -150,9 +150,10 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     unsorted_columns = sorted(zip(sorted(uniquekey), sorted_columns), key=lambda pairs : uniquekey.index(pairs[0]))
     columns = [column for _, column in unsorted_columns]
     
-    # Build the Keys for Vernam, Caesar, and Vigenere
-    one_time_pads = base64.b64decode(otp).decode(encoding)
+    # Build the Keys for Caesar, Vernam and Vigenere
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
+    one_time_pads = base64.b64decode(one_time_pad).decode(encoding)
+    otp = cycle_chunks(one_time_pads, size=len(uniquekey))
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     truncated_pass_key = cycle_chunks(b64_pass_key, size=len(uniquekey), circular=True) 
     
@@ -166,8 +167,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
         elif i % 4 == 2:
             rows[i] = vigenere_cipher(row, next(truncated_pass_key), b64, reversed=True)
         elif i % 4 == 3:
-            row_otp, one_time_pads = one_time_pads[:len(row)], one_time_pads[len(row):]
-            rows[i] = vernam_cipher(row, row_otp, b64)
+            rows[i] = vernam_cipher(row, next(otp), b64)
     
     # Regenerate the RSA encrypted text by reading the rows and stripping the non-Base64 padding characters
     encoded_rsa_encrypted_text = "".join("".join(c for c in row if c not in non_b64) for row in rows) + padding
@@ -252,7 +252,7 @@ def qtrsa_decrypt_file(filename: str, keyname: str, passkey: str, uniquekey: str
             rsa_decryption_key=d_key,
             passkey=passkey,
             uniquekey=uniquekey,
-            otp=otp,
+            one_time_pad=otp,
             encoding="utf-8"
         )
     except:
