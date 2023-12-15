@@ -4,6 +4,7 @@ import secrets
 import string
 import base64
 import hashlib as hl
+from typing import Sequence, TypeVar, Generator, cast
 
 import rsa
 
@@ -101,6 +102,30 @@ def parse_b64(b64_text: str):
     
     return content, padding
 
+Sliceable = TypeVar("Sliceable", bound=Sequence)
+def cycle_chunks(block: Sliceable, *, size: int, circular: bool = False) -> Generator[Sliceable, None, None]:
+    """ 
+    Cycles through the contents of an ArrayLike block, and yields a chunk of a given chunk size
+    at each cycle.
+
+    Note: If the circular flag is enabled, then it cycles through the block in a circular fashion.
+    So, if the current chunk is less than the size, it goes back to the start and appends.
+    """
+    previous_chunk_end = 0
+
+    while previous_chunk_end < len(block) or circular:
+        chunk_end = previous_chunk_end + size 
+        chunk = block[previous_chunk_end:chunk_end]
+        previous_chunk_end = chunk_end
+        
+        if circular:
+            # Append in circular fashion if desired size is not reached 
+            while len(chunk) != size:
+                previous_chunk_end = size - len(chunk)
+                chunk += block[:previous_chunk_end] # pyright: ignore [reportGeneralTypeIssues]
+            
+        yield cast(Sliceable, chunk)
+
 def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: str, uniquekey: str, encoding: str = "utf-8"):
     """ Encrypt a given text with QTRSA encryption. """
     b64, non_b64 = get_b64_char_space() 
@@ -113,16 +138,15 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     padding_length = len(uniquekey) - len(encoded_text) % len(uniquekey)
     padded_text = encoded_text + "".join(secrets.choice(non_b64) for _ in range(padding_length))
     
-    # Build the rows of the Transposition Cipher
-    row_length = len(uniquekey)
-    rows = ["".join(padded_text[start:start+row_length]) for start in range(0, len(padded_text), row_length)] 
-    
     # Build the keys for Vernam, Caesar, and Vigenere
     one_time_pads = ""
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
-    last_key_end_position = 0
+    truncated_pass_key = cycle_chunks(b64_pass_key, size=len(uniquekey), circular=True) 
     
+    # Build the rows of the Transposition Cipher
+    rows = [row for row in cycle_chunks(padded_text, size=len(uniquekey))]
+
     # Cipher each row with a different cipher
     for i, row in enumerate(rows):
         if   i % 4 == 0:
@@ -130,15 +154,7 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64)
         elif i % 4 == 2:
-            # Retrieve a portion of the b64 pass key with the same length as the row
-            # If the key doesn't have the same length as the row, it circularly appends
-            truncated_pass_key = b64_pass_key[last_key_end_position:last_key_end_position+len(row)]
-            last_key_end_position += len(row)
-            while len(truncated_pass_key) != len(row):
-                last_key_end_position = len(row) - len(truncated_pass_key)
-                truncated_pass_key += b64_pass_key[:last_key_end_position]
-
-            rows[i] = vigenere_cipher(row, truncated_pass_key, b64)
+            rows[i] = vigenere_cipher(row, next(truncated_pass_key), b64)
         elif i % 4 == 3:
             otp = generate_otp(len(row), b64)
             rows[i] = vernam_cipher(row, otp, b64)
@@ -157,21 +173,20 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
 
     # Parse the Base64 ciphertext and regenerate the columns of the Transposition Cipher
     decoded_text, padding = parse_b64(ciphertext.decode(encoding))
-    column_length = len(decoded_text) // len(uniquekey)
-    sorted_columns = ["".join(decoded_text[start:start+column_length]) for start in range(0, len(decoded_text), column_length)]
+    sorted_columns = [column for column in cycle_chunks(decoded_text, size=len(decoded_text) // len(uniquekey))]
     
     # Unsort the columns of the Transposition Cipher by using the unique key
     unsorted_columns = sorted(zip(sorted(uniquekey), sorted_columns), key=lambda pairs : uniquekey.index(pairs[0]))
     columns = [column for _, column in unsorted_columns]
     
-    # Transpose the columns into rows
-    rows = ["".join(row) for row in zip(*columns)]
-    
     # Build the Keys for Vernam, Caesar, and Vigenere
     one_time_pads = base64.b64decode(otp).decode(encoding)
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
-    last_key_end_position = 0
+    truncated_pass_key = cycle_chunks(b64_pass_key, size=len(uniquekey), circular=True) 
+    
+    # Transpose the columns into rows
+    rows = ["".join(row) for row in zip(*columns)]
     
     # Reverse the ciphers on each row
     for i, row in enumerate(rows):
@@ -180,15 +195,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64, reversed=True)
         elif i % 4 == 2:
-            # Retrieve a portion of the b64 pass key with the same length as the row
-            # If the key doesn't have the same length as the row, it circularly appends
-            truncated_pass_key = b64_pass_key[last_key_end_position:last_key_end_position+len(row)]
-            last_key_end_position += len(row)
-            while len(truncated_pass_key) != len(row):
-                last_key_end_position = len(row) - len(truncated_pass_key)
-                truncated_pass_key += b64_pass_key[:last_key_end_position]
-            
-            rows[i] = vigenere_cipher(row, truncated_pass_key, b64, reversed=True)
+            rows[i] = vigenere_cipher(row, next(truncated_pass_key), b64, reversed=True)
         elif i % 4 == 3:
             row_otp, one_time_pads = one_time_pads[:len(row)], one_time_pads[len(row):]
             rows[i] = vernam_cipher(row, row_otp, b64)
