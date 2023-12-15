@@ -75,13 +75,11 @@ def parse_b64(b64_text: str):
     return content, padding
 
 Sliceable = TypeVar("Sliceable", bound=Sequence)
-def cycle_chunks(block: Sliceable, *, size: int, circular: bool = False) -> Generator[Sliceable, None, None]:
+def chunks(block: Sliceable, *, size: int, circular: bool = False) -> Generator[Sliceable, None, None]:
     """ 
-    Cycles through the contents of an ArrayLike block, and yields a chunk of a given chunk size
-    at each cycle.
+    Chunks a Sliceable block, and yields a chunk of a given size at each call.
 
     Note: If the circular flag is enabled, then it cycles through the block in a circular fashion.
-    So, if the current chunk is less than the size, it goes back to the start and appends.
     """
     previous_chunk_end = 0
 
@@ -104,32 +102,34 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
 
     # Encrypt the text first in RSA, and then encode it to Base64
     chunk_size = rsa_encryption_key.n.bit_length() // 8 - 11 # in bytes, the 11 is the header length of RSA in bytes
-    rsa_cipher = b"".join(rsa.encrypt(c, rsa_encryption_key) for c in cycle_chunks(plaintext, size=chunk_size))
+    rsa_cipher = b"".join(rsa.encrypt(c, rsa_encryption_key) for c in chunks(plaintext, size=chunk_size))
     encoded_text, padding = parse_b64(base64.b64encode(rsa_cipher).decode(encoding))
 
     # Pad the text, so it gets split into equal length columns during the Transposition Cipher
     padding_length = len(uniquekey) - len(encoded_text) % len(uniquekey)
     padded_text = encoded_text + "".join(secrets.choice(non_b64) for _ in range(padding_length))
     
-    # Build the keys for Vernam, Caesar, and Vigenere
-    one_time_pads = ""
+    # Build the keys for Caesar, Vernam, and Vigenere
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
+    one_time_pads = ""
+    
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
-    truncated_pass_key = cycle_chunks(b64_pass_key, size=len(uniquekey), circular=True) 
+    pass_key_chunk = chunks(b64_pass_key, size=len(uniquekey), circular=True) 
     
     # Build the rows of the Transposition Cipher, and cipher each row differently
-    rows = [row for row in cycle_chunks(padded_text, size=len(uniquekey))]
+    rows = [row for row in chunks(padded_text, size=len(uniquekey))]
     for i, row in enumerate(rows):
         if   i % 4 == 0:
             rows[i] = abash_cipher(row, b64)
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64)
         elif i % 4 == 2:
-            rows[i] = vigenere_cipher(row, next(truncated_pass_key), b64)
+            rows[i] = vigenere_cipher(row, next(pass_key_chunk), b64)
         elif i % 4 == 3:
             otp = generate_otp(len(row), b64)
-            rows[i] = vernam_cipher(row, otp, b64)
             one_time_pads += otp
+            
+            rows[i] = vernam_cipher(row, otp, b64)
 
     # Transpose the rows, and finish the Transposition Cipher by sorting the columns by the key
     sorted_key_column_pairs = sorted(zip(uniquekey, *rows), key=lambda pairs : pairs[0])
@@ -144,7 +144,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
 
     # Parse the Base64 ciphertext and regenerate the columns of the Transposition Cipher
     decoded_text, padding = parse_b64(ciphertext.decode(encoding))
-    sorted_columns = [column for column in cycle_chunks(decoded_text, size=len(decoded_text) // len(uniquekey))]
+    sorted_columns = [column for column in chunks(decoded_text, size=len(decoded_text) // len(uniquekey))]
     
     # Unsort the columns of the Transposition Cipher by using the unique key
     unsorted_columns = sorted(zip(sorted(uniquekey), sorted_columns), key=lambda pairs : uniquekey.index(pairs[0]))
@@ -152,10 +152,12 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     
     # Build the Keys for Caesar, Vernam and Vigenere
     rot = sum(ord(c) for c in uniquekey + passkey) % len(b64) 
+    
     one_time_pads = base64.b64decode(one_time_pad).decode(encoding)
-    otp = cycle_chunks(one_time_pads, size=len(uniquekey))
+    otp_chunk = chunks(one_time_pads, size=len(uniquekey))
+
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
-    truncated_pass_key = cycle_chunks(b64_pass_key, size=len(uniquekey), circular=True) 
+    pass_key_chunk = chunks(b64_pass_key, size=len(uniquekey), circular=True) 
     
     # Transpose the columns into rows, and reverse the cipher on each row
     rows = ["".join(row) for row in zip(*columns)]
@@ -165,9 +167,9 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
         elif i % 4 == 1:
             rows[i] = caesar_cipher(row, rot, b64, reversed=True)
         elif i % 4 == 2:
-            rows[i] = vigenere_cipher(row, next(truncated_pass_key), b64, reversed=True)
+            rows[i] = vigenere_cipher(row, next(pass_key_chunk), b64, reversed=True)
         elif i % 4 == 3:
-            rows[i] = vernam_cipher(row, next(otp), b64)
+            rows[i] = vernam_cipher(row, next(otp_chunk), b64)
     
     # Regenerate the RSA encrypted text by reading the rows and stripping the non-Base64 padding characters
     encoded_rsa_encrypted_text = "".join("".join(c for c in row if c not in non_b64) for row in rows) + padding
@@ -175,7 +177,7 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     # Reverse the encoding, and decrypt the RSA layer
     rsa_encrypted_text = base64.b64decode(encoded_rsa_encrypted_text.encode(encoding))
     chunk_size = rsa_decryption_key.n.bit_length() // 8 # in bytes
-    plaintext = b"".join(rsa.decrypt(c, rsa_decryption_key) for c in cycle_chunks(rsa_encrypted_text, size=chunk_size))
+    plaintext = b"".join(rsa.decrypt(c, rsa_decryption_key) for c in chunks(rsa_encrypted_text, size=chunk_size))
    
     return plaintext
 
