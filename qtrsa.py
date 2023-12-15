@@ -56,34 +56,6 @@ def vernam_cipher(text: str, one_time_pad: str, space: list[str] | str):
     
     return "".join(space[space.index(c) ^ space.index(o)] if c in space and o in space else c for c, o in zip(text, one_time_pad))
 
-# ===== RSA FUNCTIONS =====
-def rsa_encrypt(plaintext: bytes, encryption_key: rsa.PublicKey):
-    """ Encrypts text of any length with RSA encryption. """
-    header_length = 11 # in bytes
-    chunk_size = encryption_key.n.bit_length() // 8 - header_length # in bytes
-    chunks = plaintext[:]
-
-    cipher = b""
-    while True:
-        chunk, chunks = chunks[:chunk_size], chunks[chunk_size:]
-        cipher += rsa.encrypt(chunk, encryption_key)
-        if len(chunks) == 0: break
-
-    return cipher
-
-def rsa_decrypt(ciphertext: bytes, decryption_key: rsa.PrivateKey):
-    """ Decrypts text of any length that was encrypted with RSA encryption. """
-    chunk_size = decryption_key.n.bit_length() // 8 # in bytes
-    chunks = ciphertext[:]
-    
-    plain = b""
-    while True: 
-        chunk, chunks = chunks[:chunk_size], chunks[chunk_size:]
-        plain += rsa.decrypt(chunk, decryption_key)
-        if len(chunks) == 0: break
-
-    return plain
-
 # ===== QTRSA FUNCTIONS =====
 def get_b64_char_space():
     """ Gets a tuple containing the character space of Base64, and the valid characters that are not used in the Base64 space. """
@@ -131,7 +103,8 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     b64, non_b64 = get_b64_char_space() 
 
     # Encrypt the text first in RSA, and then encode it to Base64
-    rsa_cipher = rsa_encrypt(plaintext, rsa_encryption_key)
+    chunk_size = rsa_encryption_key.n.bit_length() // 8 - 11 # in bytes, the 11 is the header length of RSA in bytes
+    rsa_cipher = b"".join(rsa.encrypt(c, rsa_encryption_key) for c in cycle_chunks(plaintext, size=chunk_size))
     encoded_text, padding = parse_b64(base64.b64encode(rsa_cipher).decode(encoding))
 
     # Pad the text, so it gets split into equal length columns during the Transposition Cipher
@@ -144,10 +117,8 @@ def qtrsa_encrypt(plaintext: bytes, rsa_encryption_key: rsa.PublicKey, passkey: 
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     truncated_pass_key = cycle_chunks(b64_pass_key, size=len(uniquekey), circular=True) 
     
-    # Build the rows of the Transposition Cipher
+    # Build the rows of the Transposition Cipher, and cipher each row differently
     rows = [row for row in cycle_chunks(padded_text, size=len(uniquekey))]
-
-    # Cipher each row with a different cipher
     for i, row in enumerate(rows):
         if   i % 4 == 0:
             rows[i] = abash_cipher(row, b64)
@@ -185,10 +156,8 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
     b64_pass_key = base64.b64encode(passkey.encode(encoding)).decode(encoding)
     truncated_pass_key = cycle_chunks(b64_pass_key, size=len(uniquekey), circular=True) 
     
-    # Transpose the columns into rows
+    # Transpose the columns into rows, and reverse the cipher on each row
     rows = ["".join(row) for row in zip(*columns)]
-    
-    # Reverse the ciphers on each row
     for i, row in enumerate(rows):
         if   i % 4 == 0:
             rows[i] = abash_cipher(row, b64)
@@ -205,7 +174,8 @@ def qtrsa_decrypt(ciphertext: bytes, rsa_decryption_key: rsa.PrivateKey, passkey
 
     # Reverse the encoding, and decrypt the RSA layer
     rsa_encrypted_text = base64.b64decode(encoded_rsa_encrypted_text.encode(encoding))
-    plaintext = rsa_decrypt(rsa_encrypted_text, rsa_decryption_key)
+    chunk_size = rsa_decryption_key.n.bit_length() // 8 # in bytes
+    plaintext = b"".join(rsa.decrypt(c, rsa_decryption_key) for c in cycle_chunks(rsa_encrypted_text, size=chunk_size))
    
     return plaintext
 
